@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Monte Carlo NPV Simulation + Scatter & Histogram</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+    }
+    .container {
+      display: flex;
+      height: calc(100vh - 40px);
+    }
+    .controls {
+      flex: 0 0 50%;
+      max-height: 100%;
+      overflow-y: auto;
+      padding-right: 10px;
+      box-sizing: border-box;
+    }
+    .display {
+      flex: 0 0 50%;
+      padding-left: 10px;
+      box-sizing: border-box;
+    }
+
+    /* === ITEMS TABLE FIXED COL WIDTHS === */
+    #itemsTable {
+      width: 100%;
+      table-layout: fixed;
+    }
+    #itemsTable td input,
+    #itemsTable td select {
+      width: 100%;
+      box-sizing: border-box;
+    }
+    #itemsTable colgroup col:nth-child(1) { width: 20%; }
+    #itemsTable colgroup col:nth-child(2) { width: 15%; }
+    #itemsTable colgroup col:nth-child(3) { width: 15%; }
+    #itemsTable colgroup col:nth-child(4) { width: 10%; }
+    #itemsTable colgroup col:nth-child(5) { width: 10%; }
+    #itemsTable colgroup col:nth-child(6) { width: 10%; }
+    #itemsTable colgroup col:nth-child(7) { width: 20%; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 10px;
+    }
+    th, td {
+      border: 1px solid #ccc;
+      padding: 4px;
+      text-align: center;
+      font-size: 0.9em;
+    }
+    th {
+      background: #f0f0f0;
+    }
+    input[type="number"],
+    input[type="text"],
+    select {
+      box-sizing: border-box;
+    }
+    #addItem {
+      margin-bottom: 10px;
+    }
+    #info {
+      margin-top: 10px;
+      font-size: 0.9em;
+    }
+    canvas {
+      width: 100% !important;
+      height: 300px !important;
+      margin-bottom: 20px;
+    }
+    .tabs {
+      margin-bottom: 10px;
+    }
+    .tabs button {
+      padding: 6px 12px;
+      margin-right: 5px;
+      border: 1px solid #ccc;
+      background: #f9f9f9;
+      cursor: pointer;
+    }
+    .tabs button.active {
+      background: #007BFF;
+      color: #fff;
+    }
+    .tab-content {
+      display: none;
+    }
+    .tab-content.active {
+      display: block;
+    }
+    .data-table {
+      border-collapse: collapse;
+      min-width: 800px;
+    }
+    .data-table th, .data-table td {
+      border: 1px solid #ccc;
+      padding: 4px;
+      text-align: center;
+      white-space: nowrap;
+      background: #fff;
+    }
+    .data-table th.sticky, .data-table td.sticky {
+      position: sticky;
+      left: 0;
+      background: #f9f9f9;
+      z-index: 2;
+    }
+    .data-table th.sticky-type, .data-table td.sticky-type {
+      position: sticky;
+      left: 100px;
+      background: #f9f9f9;
+      z-index: 2;
+    }
+    .data-table tfoot td {
+      font-weight: bold;
+      background: #e0e0e0;
+      position: sticky;
+      bottom: 0;
+      z-index: 1;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="controls">
+      <button id="addItem">Add Item</button>
+      <table id="itemsTable">
+        <colgroup><col><col><col><col><col><col><col></colgroup>
+        <thead>
+          <tr>
+            <th>Name</th><th>Type</th><th>Years</th>
+            <th>Low</th><th>Mode</th><th>High</th><th>Action</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <div>
+        <label>
+          Discount Rate: <span id="drVal"></span>
+          <input id="dr" type="range" min="0" max="0.2" step="0.005" value="0.05">
+        </label>
+      </div>
+    </div>
+
+    <div class="display">
+      <div class="tabs">
+        <button data-tab="plot" class="active">Time Series</button>
+        <button data-tab="montecarlo">Monte Carlo</button>
+        <button data-tab="table">Table</button>
+        <button data-tab="sensitivity">Sensitivity</button>
+        <button data-tab="pareto">Pareto</button>
+        <button data-tab="dataView">Data View</button>
+      </div>
+
+      <!-- Time Series Tab -->
+      <div id="plot" class="tab-content active">
+        <canvas id="chart"></canvas>
+        <div id="info"></div>
+      </div>
+
+      <!-- Monte Carlo Tab: histogram + scatter -->
+      <div id="montecarlo" class="tab-content">
+        <canvas id="histogramChart"></canvas>
+        <canvas id="scatterChart"></canvas>
+      </div>
+
+      <!-- Table Tab -->
+      <div id="table" class="tab-content">
+        <table id="resultsTable">
+          <thead>
+            <tr><th>Category</th><th>Nominal</th><th>Present Value</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Cost</td><td id="nomCost"></td><td id="pvCost"></td></tr>
+            <tr><td>Benefit</td><td id="nomBen"></td><td id="pvBen"></td></tr>
+            <tr><td>Net</td><td id="nomNet"></td><td id="pvNet"></td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Sensitivity Tab -->
+      <div id="sensitivity" class="tab-content">
+        <canvas id="tornadoChart"></canvas>
+      </div>
+
+      <!-- Pareto Tab -->
+      <div id="pareto" class="tab-content">
+        <canvas id="paretoChart"></canvas>
+      </div>
+
+      <!-- Data View Tab -->
+      <div id="dataView" class="tab-content">
+        <button id="toggleView">Switch to NPV View</button>
+        <div id="dataTableContainer" style="overflow-x:auto; max-width:100%; margin-top:10px;"></div>
+      </div>
+    </div>
+  </div>
+
+<script>
+  // --- Utilities ---
+  const randomTriangular = (a,c,b) => {
+    const u = Math.random(), fc = (c-a)/(b-a);
+    return u < fc
+      ? a + Math.sqrt(u*(b-a)*(c-a))
+      : b - Math.sqrt((1-u)*(b-a)*(b-c));
+  };
+  const parseYears = str => {
+    const s = new Set();
+    str.split(',').forEach(p => {
+      const [x,y] = p.split('-').map(n=>parseInt(n,10));
+      if(!isNaN(x) && isNaN(y)) s.add(x);
+      else if(!isNaN(x) && !isNaN(y)) for(let i=x;i<=y;i++) s.add(i);
+    });
+    return [...s].sort((a,b)=>a-b);
+  };
+  const formatYears = arr => {
+    if(!arr.length) return '';
+    const r = [], n=arr.length;
+    let start=arr[0], end=arr[0];
+    for(let i=1;i<n;i++){
+      if(arr[i]===end+1) end=arr[i];
+      else { r.push(start===end?`${start}`:`${start}-${end}`); start=end=arr[i]; }
+    }
+    r.push(start===end?`${start}`:`${start}-${end}`);
+    return r.join(',');
+  };
+
+  // --- State ---
+  const items = [
+    {name:'Upfront Cost',    type:'cost',    years:[0],                   low:10, mode:15, high:30},
+    {name:'Upfront Benefit', type:'benefit', years:[0],                   low:5,  mode:10, high:15},
+    {name:'Ongoing Cost',    type:'cost',    years:[1,2,3,4,5,6,7,8,9,10], low:5,  mode:10, high:20},
+    {name:'Ongoing Benefit', type:'benefit', years:[1,2,3,4,5,6,7,8,9,10], low:10, mode:15, high:30}
+  ];
+  const params = { discountRate: +document.getElementById('dr').value };
+  let lastSimResult = null;
+
+  // --- Build / Edit Items Table ---
+  function buildTable(){
+    const tb = document.querySelector('#itemsTable tbody');
+    tb.innerHTML = '';
+    items.forEach((it,i)=>{
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><input value="${it.name}"></td>
+        <td>
+          <select>
+            <option value="cost"${it.type==='cost'?' selected':''}>Cost</option>
+            <option value="benefit"${it.type==='benefit'?' selected':''}>Benefit</option>
+          </select>
+        </td>
+        <td><input value="${formatYears(it.years)}"></td>
+        <td><input type="number" value="${it.low}"></td>
+        <td><input type="number" value="${it.mode}"></td>
+        <td><input type="number" value="${it.high}"></td>
+        <td><button>Remove</button></td>
+      `;
+      tr.querySelectorAll('input,select').forEach(ele=>{
+        ele.addEventListener('change',()=>{
+          const [n,t,y,lo,mo,hi] = tr.querySelectorAll('input,select');
+          it.name = n.value;
+          it.type = t.value;
+          it.years = parseYears(y.value);
+          it.low  = +lo.value;
+          it.mode = +mo.value;
+          it.high = +hi.value;
+          updateAll();
+        });
+      });
+      tr.querySelector('button').addEventListener('click',()=>{
+        items.splice(i,1);
+        buildTable();
+        updateAll();
+      });
+      tb.appendChild(tr);
+    });
+  }
+  document.getElementById('addItem').addEventListener('click',()=>{
+    items.push({name:'New Item',type:'cost',years:[0],low:0,mode:0,high:0});
+    buildTable();
+    updateAll();
+  });
+
+  // --- Discount Rate Slider ---
+  document.getElementById('dr').addEventListener('input', e=>{
+    params.discountRate = +e.target.value;
+    document.getElementById('drVal').textContent = (params.discountRate*100).toFixed(1)+'%';
+    updateAll();
+  });
+  document.getElementById('drVal').textContent = (params.discountRate*100).toFixed(1)+'%';
+
+  // --- Monte Carlo + Deterministic Simulate ---
+  function simulate(){
+    const runs = 500;
+    const horizon = items.length ? Math.max(...items.flatMap(it=>it.years)) : 0;
+    const det = Array(horizon+1).fill(0);
+
+    // deterministic
+    det[0] = items.reduce((s,it)=>
+      it.years.includes(0)
+        ? s + (it.type==='cost'?-it.mode:it.mode)
+        : s, 0
+    );
+    for(let t=1; t<=horizon; t++){
+      det[t] = det[t-1] + items.reduce((s,it)=>{
+        if(!it.years.includes(t)) return s;
+        const v = it.mode/Math.pow(1+params.discountRate,t);
+        return s + (it.type==='cost'?-v:v);
+      }, 0);
+    }
+
+    // Monte Carlo
+    const sims = [], simsCosts = [], simsBenefits = [];
+    for(let i=0;i<runs;i++){
+      let costSum=0, benSum=0;
+      const ser = [];
+      // t=0
+      let v0 = 0;
+      items.forEach(it=>{
+        if(!it.years.includes(0)) return;
+        const v = randomTriangular(it.low,it.mode,it.high);
+        v0 += it.type==='cost'?-v:v;
+        if(it.type==='cost') costSum+=v;
+        else benSum+=v;
+      });
+      ser.push(v0);
+      // t=1..horizon
+      for(let t=1;t<=horizon;t++){
+        const prev = ser[t-1];
+        let delta = 0;
+        items.forEach(it=>{
+          if(!it.years.includes(t)) return;
+          const v = randomTriangular(it.low,it.mode,it.high);
+          const pv = v/Math.pow(1+params.discountRate,t);
+          delta += it.type==='cost'?-pv:pv;
+          if(it.type==='cost') costSum+=pv;
+          else benSum+=pv;
+        });
+        ser.push(prev+delta);
+      }
+      sims.push(ser);
+      simsCosts.push(costSum);
+      simsBenefits.push(benSum);
+    }
+
+    // bands
+    const lower = [], upper = [];
+    for(let t=0;t<=horizon;t++){
+      const arr = sims.map(s=>s[t]).sort((a,b)=>a-b);
+      lower.push(arr[Math.floor(0.05*runs)]);
+      upper.push(arr[Math.floor(0.95*runs)]);
+    }
+
+    lastSimResult = { times: Array.from({length:horizon+1},(_,i)=>i), det, lower, upper, sims, simsCosts, simsBenefits };
+    return lastSimResult;
+  }
+
+  // --- Summaries, Sensitivity, Pareto ---
+  function computeSummary(){
+    let nomC=0,pvC=0,nomB=0,pvB=0;
+    items.forEach(it=>{
+      it.years.forEach(t=>{
+        const v = it.mode;
+        if(it.type==='cost'){
+          nomC+=v; pvC+=v/Math.pow(1+params.discountRate,t);
+        } else {
+          nomB+=v; pvB+=v/Math.pow(1+params.discountRate,t);
+        }
+      });
+    });
+    return {
+      nomCost:nomC, pvCost:pvC,
+      nomBen: nomB, pvBen:pvB,
+      nomNet: nomB-nomC, pvNet: pvB-pvC
+    };
+  }
+  function computeSensitivity(){
+    const base = computeSummary().pvNet;
+    return items.map(it=>{
+      const saved = it.mode;
+      it.mode = it.low;  const low  = computeSummary().pvNet - base;
+      it.mode = it.high; const high = computeSummary().pvNet - base;
+      it.mode = saved;
+      return { name:it.name, lowImpact:low, highImpact:high, magnitude:Math.max(Math.abs(low),Math.abs(high)) };
+    }).sort((a,b)=>b.magnitude - a.magnitude);
+  }
+  function computePareto(){
+    return items.map(it=>{
+      const contrib = it.years.reduce((s,t)=>
+        s + (it.type==='cost'?-it.mode/Math.pow(1+params.discountRate,t)
+                            : it.mode/Math.pow(1+params.discountRate,t))
+      ,0);
+      return { name:it.name, contrib };
+    }).sort((a,b)=>Math.abs(b.contrib) - Math.abs(a.contrib));
+  }
+
+  // --- Chart.js Instances & Init ---
+  let chart, tornado, pareto, histogramChart, scatterChart;
+  function initPlot(){
+    const ctx = document.getElementById('chart').getContext('2d');
+    chart = new Chart(ctx, {
+      type:'line',
+      data:{ labels:[], datasets:[
+        { label:'5th%',    data:[], borderColor:'transparent', backgroundColor:'transparent' },
+        { label:'95th%',   data:[], borderColor:'transparent', backgroundColor:'rgba(200,200,200,0.5)', fill:'-1' },
+        { label:'Mode NPV',data:[], borderColor:'blue', fill:false, tension:0.1 }
+      ]},
+      options:{
+        responsive:true,
+        interaction:{mode:'index',intersect:false},
+        scales:{ x:{title:{display:true,text:'Year'}}, y:{title:{display:true,text:'NPV'}} }
+      }
+    });
+  }
+  function initTornado(){
+    const ctx = document.getElementById('tornadoChart').getContext('2d');
+    tornado = new Chart(ctx,{ type:'bar',
+      data:{ labels:[], datasets:[
+        { label:'Low Impact',  data:[], backgroundColor:'rgba(200,0,0,0.5)' },
+        { label:'High Impact', data:[], backgroundColor:'rgba(0,200,0,0.5)' }
+      ]},
+      options:{ indexAxis:'y', responsive:true, scales:{ x:{title:{display:true,text:'Δ PV NPV'}} } }
+    });
+  }
+  function initPareto(){
+    const ctx = document.getElementById('paretoChart').getContext('2d');
+    pareto = new Chart(ctx,{ type:'bar',
+      data:{ labels:[], datasets:[
+        { label:'PV Contribution', data:[], backgroundColor:[] }
+      ]},
+      options:{ indexAxis:'y', responsive:true, scales:{ x:{title:{display:true,text:'PV Contribution'}} } }
+    });
+  }
+  function initHistogram(){
+    const ctx = document.getElementById('histogramChart').getContext('2d');
+    histogramChart = new Chart(ctx,{ type:'bar',
+      data:{ labels:[], datasets:[
+        { label:'Terminal NPV Frequency', data:[] }
+      ]},
+      options:{ responsive:true, scales:{ x:{title:{display:true,text:'NPV Range'}}, y:{title:{display:true,text:'Count'}} } }
+    });
+  }
+  function initScatter(){
+    const ctx = document.getElementById('scatterChart').getContext('2d');
+    scatterChart = new Chart(ctx,{ type:'scatter',
+      data:{ datasets:[
+        {
+          label:'MC Runs',
+          data:[],
+          pointRadius:3,
+          backgroundColor:'rgba(0,123,255,0.5)'
+        },
+        {
+          label:'BCR = 1',
+          type:'line',
+          data:[],
+          borderColor:'red',
+          borderWidth:1,
+          fill:false,
+          showLine:true,
+          pointRadius:0
+        },
+        {
+          label:'Mean',
+          type:'scatter',
+          data:[],
+          pointRadius:6,
+          backgroundColor:'black'
+        }
+      ]},
+      options:{ responsive:true,
+        scales:{
+          x:{ title:{display:true,text:'Total Cost (PV)'} },
+          y:{ title:{display:true,text:'Total Benefit (PV)'} }
+        }
+      }
+    });
+  }
+
+  // --- Update routines ---
+  function updatePlot(){
+    const sim = simulate();
+    chart.data.labels    = sim.times;
+    chart.data.datasets[0].data = sim.lower;
+    chart.data.datasets[1].data = sim.upper;
+    chart.data.datasets[2].data = sim.det;
+    chart.update();
+    const be = sim.det.findIndex(v=>v>=0),
+          te = sim.det[sim.det.length-1].toFixed(2);
+    document.getElementById('info').innerHTML =
+      `Break-even: <strong>${be>=0?be+' yrs':'–'}</strong><br>`+
+      `Terminal NPV: <strong>$${te}</strong>`;
+  }
+  function updateTable(){
+    const s = computeSummary();
+    document.getElementById('nomCost').textContent = s.nomCost.toFixed(2);
+    document.getElementById('pvCost').textContent  = s.pvCost.toFixed(2);
+    document.getElementById('nomBen').textContent = s.nomBen.toFixed(2);
+    document.getElementById('pvBen').textContent  = s.pvBen.toFixed(2);
+    document.getElementById('nomNet').textContent = s.nomNet.toFixed(2);
+    document.getElementById('pvNet').textContent  = s.pvNet.toFixed(2);
+  }
+  function updateTornado(){
+    const data = computeSensitivity();
+    tornado.data.labels           = data.map(d=>d.name);
+    tornado.data.datasets[0].data = data.map(d=>d.lowImpact);
+    tornado.data.datasets[1].data = data.map(d=>d.highImpact);
+    tornado.update();
+  }
+  function updatePareto(){
+    const data = computePareto();
+    pareto.data.labels = data.map(d=>d.name);
+    pareto.data.datasets[0].data            = data.map(d=>d.contrib);
+    pareto.data.datasets[0].backgroundColor = data.map(d=> d.contrib<0
+      ? 'rgba(200,0,0,0.5)' : 'rgba(0,200,0,0.5)'
+    );
+    pareto.update();
+  }
+  function updateHistogram(){
+    const sim = lastSimResult;
+    if(!sim) return;
+    const finals = sim.sims.map(s=>s[s.length-1]);
+    const binsCount = 20;
+    const minV = Math.min(...finals), maxV = Math.max(...finals);
+    const w = (maxV - minV)/binsCount;
+    const bins = Array(binsCount).fill(0);
+    finals.forEach(v=>{
+      const idx = Math.min(binsCount-1, Math.floor((v-minV)/w));
+      bins[idx]++;
+    });
+    const labels = bins.map((_,i)=>{
+      const lo=(minV+i*w).toFixed(0), hi=(minV+(i+1)*w).toFixed(0);
+      return `${lo}–${hi}`;
+    });
+    histogramChart.data.labels = labels;
+    histogramChart.data.datasets[0].data = bins;
+    histogramChart.update();
+  }
+  function updateScatter(){
+    const sim = lastSimResult;
+    if(!sim) return;
+    const costs = sim.simsCosts, bens = sim.simsBenefits;
+    const points = costs.map((c,i)=>({ x:c, y:bens[i] }));
+    const minC = Math.min(...costs), maxC = Math.max(...costs);
+    const minB = Math.min(...bens),  maxB = Math.max(...bens);
+    const minV = Math.min(minC, minB), maxV = Math.max(maxC, maxB);
+    const meanC = costs.reduce((a,b)=>a+b,0)/costs.length;
+    const meanB = bens .reduce((a,b)=>a+b,0)/bens.length;
+
+    scatterChart.data.datasets[0].data = points;
+    scatterChart.data.datasets[1].data = [{x:minV,y:minV},{x:maxV,y:maxV}];
+    scatterChart.data.datasets[2].data = [{x:meanC,y:meanB}];
+
+    scatterChart.options.scales.x.min = minC;
+    scatterChart.options.scales.x.max = maxC;
+    scatterChart.options.scales.y.min = minB;
+    scatterChart.options.scales.y.max = maxB;
+
+    scatterChart.update();
+  }
+
+  function updateAll(){
+    updatePlot();
+    updateTable();
+    updateTornado();
+    updatePareto();
+    updateHistogram();
+    updateScatter();
+    buildDataTable();
+  }
+
+  // --- Data View builder ---
+  function buildDataTable() {
+    const c = document.getElementById('dataTableContainer');
+    c.innerHTML = '';
+    const years = [...new Set(items.flatMap(it=>it.years))].sort((a,b)=>a-b);
+    const isNPV = document.getElementById('toggleView')?.dataset.view === 'npv';
+    const tbl = document.createElement('table');
+    tbl.className = 'data-table';
+
+    const thead = document.createElement('thead');
+    const hr = document.createElement('tr');
+    hr.innerHTML = '<th>Name</th><th>Type</th>' +
+      years.map(y=>`<th>Year ${y}</th>`).join('') +
+      '<th>Total</th>';
+    thead.appendChild(hr); tbl.appendChild(thead);
+
+    const tbody = document.createElement('tbody');
+    items.forEach(it=>{
+      let total = 0;
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td>${it.name}</td><td>${it.type}</td>`;
+      years.forEach(y=>{
+        let v = it.years.includes(y) ? it.mode : 0;
+        if(isNPV && it.years.includes(y)) v /= Math.pow(1+params.discountRate,y);
+        total += it.type==='cost'? -v : v;
+        tr.innerHTML += `<td>${v.toFixed(2)}</td>`;
+      });
+      tr.innerHTML += `<td>${total.toFixed(2)}</td>`;
+      tbody.appendChild(tr);
+    });
+    tbl.appendChild(tbody);
+
+    const tfoot = document.createElement('tfoot');
+    const fr = document.createElement('tr');
+    fr.innerHTML = '<td colspan="2">Totals:</td>';
+    let grand = 0;
+    years.forEach(y=>{
+      let sumY = 0;
+      items.forEach(it=>{
+        let v = it.years.includes(y) ? it.mode : 0;
+        if(isNPV && it.years.includes(y)) v /= Math.pow(1+params.discountRate,y);
+        sumY += it.type==='cost'? -v : v;
+        grand += it.type==='cost'? -v : v;
+      });
+      fr.innerHTML += `<td>${sumY.toFixed(2)}</td>`;
+    });
+    fr.innerHTML += `<td>${grand.toFixed(2)}</td>`;
+    tfoot.appendChild(fr);
+    tbl.appendChild(tfoot);
+
+    c.appendChild(tbl);
+  }
+
+  document.getElementById('toggleView')?.addEventListener('click', () => {
+    const btn = document.getElementById('toggleView');
+    const view = btn.dataset.view || 'nominal';
+    btn.dataset.view = view === 'nominal' ? 'npv' : 'nominal';
+    btn.textContent = view === 'nominal' ? 'Switch to Nominal View' : 'Switch to NPV View';
+    buildDataTable();
+  });
+
+  // --- Tab switching ---
+  document.querySelectorAll('.tabs button').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      document.querySelectorAll('.tabs button').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active');
+      document.querySelectorAll('.tab-content').forEach(tc=>tc.classList.remove('active'));
+      document.getElementById(btn.dataset.tab).classList.add('active');
+    });
+  });
+
+  // --- On load ---
+  window.onload = () => {
+    buildTable();
+    initPlot();
+    initTornado();
+    initPareto();
+    initHistogram();
+    initScatter();
+    updateAll();
+  };
+</script>
+</body>
+</html>
