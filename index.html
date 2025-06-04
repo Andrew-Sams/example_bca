@@ -530,6 +530,12 @@
     const finals = sim.sims.map(s=>s[s.length-1]);
     const binsCount = 20;
     const minV = Math.min(...finals), maxV = Math.max(...finals);
+    if(maxV === minV){
+      histogramChart.data.labels = [minV.toFixed(0)];
+      histogramChart.data.datasets[0].data = [finals.length];
+      histogramChart.update();
+      return;
+    }
     const w = (maxV - minV)/binsCount;
     const bins = Array(binsCount).fill(0);
     finals.forEach(v=>{
